@@ -1,11 +1,13 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import http from "http";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// API request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -37,32 +39,38 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    // Create server object separately for Vite to hook into
+    const server = http.createServer(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    res.status(status).json({ message });
-    throw err;
-  });
+    // Register API routes
+    await registerRoutes(app);
 
-  // Setup the Vite after all routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+    // Error handling middleware
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      console.error("Error occurred:", err);
+      res.status(status).json({ message });
+    });
 
-  const port = 5000;
-  const host = "localhost"; // Before didnt work now fixed from '0.0.0.0' to 'localhost' - '5000'...check for localhost number
-
-  server.listen(
-    {
-      port,
-      host,
-    },
-    () => {
-      log(`🚀 Server running at http://${host}:${port}`);
+    // Serve frontend with Vite in dev, static in prod
+    if (app.get("env") === "development") {
+      console.log("🔧 Setting up Vite for development...");
+      await setupVite(app, server);
+    } else {
+      console.log("📦 Serving static files...");
+      serveStatic(app);
     }
-  );
-})
+
+    const port = 5000;
+    const host = "localhost";
+
+    server.listen(port, host, () => {
+      log(`🚀 Server running at http://${host}:${port}`);
+    });
+  } catch (err) {
+    console.error("❌ Failed to start server:", err);
+    process.exit(1);
+  }
+})();
